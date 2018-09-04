@@ -10,13 +10,17 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Spinner;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.google.firebase.database.ChildEventListener;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.Query;
 import com.google.firebase.database.ValueEventListener;
+
+import java.util.ArrayList;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener, ChildEventListener {
     private static final String DATA = "data";
@@ -25,9 +29,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private static final String FRIENDS = "friends";
     private static final String TAG = "Fire base";
     private static final String MY_EMAIL = "rogertsai917@gmail.com";
-    private static final int IS_FRIEND = 0;
-    private static final int RECEIVED_FRIEND_REQUEST = 1;
-    private static final int SEND_FRIEND_REQUEST = -1;
+    private static final String IS_FRIEND = "朋友";
+    private static final String RECEIVED_FRIEND_REQUEST = "待確認";
+    private static final String SEND_FRIEND_REQUEST = "待邀請";
 
     private EditText mSearchUserEditText;
     private TextView mSearchUserTextView;
@@ -37,18 +41,23 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private Button mFriendRequestButton;
     private Button mFriendCancelButton;
     private Spinner mArticlesTagSpinner;
+    private EditText mArticleTitleEditText;
+    private EditText mArticleContentEditText;
     private Button mPostArticleButton;
     private ArrayAdapter<String> mTagListAdapter;
     private Spinner mSearchArticlesTagSpinner;
+    private Spinner mSearchArticlesFriendSpinner;
     private Button mSearchArticleButton;
     private ArrayAdapter<String> mSearchTagListAdapter;
+    private ArrayAdapter<String> mSearchFriendListAdapter;
 
+    private String mCurrentUser;
     private String[] mArticleTags = {"八卦", "表特", "就可", "生活"};
     private String[] mSearchArticleTags = {"全部", "八卦", "表特", "就可", "生活"};
-    private String mCurrentArticleTag = mArticleTags[0];
+    private ArrayList<String> mSearchArticleFriends = new ArrayList<>();
+    private String mCurrentPostArticleTag = mArticleTags[0];
     private String mCurrentSearchArticleTag = mSearchArticleTags[0];
-    private String mCurrentUser;
-    private boolean isFirstRun = true;
+    private String mCurrentSearchArticleFriend = "無";
 
     private FirebaseDatabase mFirebaseDatabase;
     private DatabaseReference mFriendReference;
@@ -66,29 +75,32 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         mFriendRequestButton = findViewById(R.id.button_friend_request);
         mFriendCancelButton = findViewById(R.id.button_friend_cancel);
         mArticlesTagSpinner = findViewById(R.id.spinner_article_tag);
+        mArticleTitleEditText = findViewById(R.id.editText_article_title);
+        mArticleContentEditText = findViewById(R.id.editText_article_content);
         mPostArticleButton = findViewById(R.id.button_post_article);
         mSearchArticlesTagSpinner = findViewById(R.id.spinner_search_tag);
+        mSearchArticlesFriendSpinner = findViewById(R.id.spinner_search_friend);
         mSearchArticleButton = findViewById(R.id.button_search_articles);
-
+        mSearchArticleFriends.add("無");
 
         mFirebaseDatabase = FirebaseDatabase.getInstance();
         mFriendReference = mFirebaseDatabase.getReference(DATA).child(USERS).child(changeEmailToId(MY_EMAIL)).child(FRIENDS);
         mFriendReference.addChildEventListener(this);
-        isFirstRun = false;
 
         mSearchUserButton.setOnClickListener(this);
         mFriendAcceptButton.setOnClickListener(this);
         mFriendRequestButton.setOnClickListener(this);
         mFriendCancelButton.setOnClickListener(this);
         mPostArticleButton.setOnClickListener(this);
+        mSearchArticleButton.setOnClickListener(this);
 
         mTagListAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, mArticleTags);
         mArticlesTagSpinner.setAdapter(mTagListAdapter);
         mArticlesTagSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                mCurrentArticleTag = mArticleTags[position];
-                Log.d(TAG, "onPostArticlesTagSelected: " + mCurrentArticleTag);
+                mCurrentPostArticleTag = mArticleTags[position];
+                Log.d(TAG, "onPostArticlesTagSelected: " + mCurrentPostArticleTag);
             }
 
             @Override
@@ -111,6 +123,22 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
             }
         });
+
+
+        mSearchFriendListAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, mSearchArticleFriends);
+        mSearchArticlesFriendSpinner.setAdapter(mSearchFriendListAdapter);
+        mSearchArticlesFriendSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                mCurrentSearchArticleFriend = mSearchArticleFriends.get(position);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+
+            }
+        });
+
     }
 
     @Override
@@ -133,7 +161,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 postArticle();
                 break;
             case R.id.button_search_articles:
-                
+                searchArticles();
                 break;
 //            case R.id.button_get_user_data:
 //                User user = new User("fff" + mCount, "fff@gmail.com");
@@ -155,8 +183,13 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     @Override
     public void onChildAdded(DataSnapshot dataSnapshot, String s) {
         String value = dataSnapshot.getKey();
+        String state = (String) dataSnapshot.getValue();
         Log.d(TAG, "onChildAdded Key is: " + value);
-        if (value != null && !value.equals("null") && !isFirstRun) {
+        Log.d(TAG, "onChildAdded Value is: " + state);
+        if (value != null && !value.equals("null")) {
+            if (state != null && state.equals(IS_FRIEND)) {
+                mSearchArticleFriends.add(value);
+            }
             mCurrentUser = value;
             searchUser(mCurrentUser);
         }
@@ -165,9 +198,15 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     @Override
     public void onChildChanged(DataSnapshot dataSnapshot, String s) {
         String value = dataSnapshot.getKey();
+        String state = (String) dataSnapshot.getValue();
         mCurrentUser = value;
         Log.d(TAG, "onChildChanged Key is: " + value);
         searchUser(mCurrentUser);
+        if (state != null && state.equals(IS_FRIEND)) {
+            mSearchArticleFriends.add(value);
+        } else {
+            mSearchArticleFriends.remove(value);
+        }
     }
 
     @Override
@@ -175,6 +214,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         String value = dataSnapshot.getKey();
         Log.d(TAG, "Removed Value is: " + value);
         searchUser(value);
+        mSearchArticleFriends.remove(value);
     }
 
     @Override
@@ -231,7 +271,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     if (value == null || value.equals("null")) {
                         notFriend();
                     } else {
-                        switch (Integer.parseInt(value)) {
+                        switch (value) {
                             case IS_FRIEND:
                                 isFriend();
                                 break;
@@ -330,12 +370,119 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     }
 
     private void postArticle() {
-        DatabaseReference reference = FirebaseDatabase.getInstance().getReference(DATA);
-        Author author = new Author(changeEmailToId(MY_EMAIL), "Roger", MY_EMAIL);
-        Article article = new Article("哈囉", "哈囉哈囉!", mCurrentArticleTag, author, "123");
-        String key = reference.child(ARTICLES).push().getKey();
-        Log.d(TAG, "KEY: " + key);
-        reference.child(ARTICLES).child(key).setValue(article);
-        reference.child(USERS).child(changeEmailToId(MY_EMAIL)).child("articles").child(key).setValue(true);
+        String title = mArticleTitleEditText.getText().toString();
+        String content = mArticleContentEditText.getText().toString();
+        if (!title.equals("") && !content.equals("")) {
+            DatabaseReference reference = FirebaseDatabase.getInstance().getReference(DATA);
+            Author author = new Author(changeEmailToId(MY_EMAIL), "Roger", MY_EMAIL);
+            Long currentTime = System.currentTimeMillis() / 1000;
+            Article article = new Article(title, content, mCurrentPostArticleTag, author, String.valueOf(currentTime));
+            String key = reference.child(ARTICLES).push().getKey();
+            Log.d(TAG, "KEY: " + key);
+            reference.child(ARTICLES).child(key).setValue(article);
+            reference.child(USERS).child(changeEmailToId(MY_EMAIL)).child("articles").child(key).setValue(true);
+        } else {
+            Toast.makeText(this, "title or content can not be empty", Toast.LENGTH_LONG).show();
+        }
+        mArticleTitleEditText.setText("");
+        mArticleContentEditText.setText("");
+    }
+
+    private void searchArticles() {
+        if (mCurrentSearchArticleTag.equals(mSearchArticleTags[0]) && mCurrentSearchArticleFriend.equals("無")) {
+            Log.d(TAG, "search type : searchAllArticles");
+            searchAllArticles();
+        } else if(!mCurrentSearchArticleTag.equals(mSearchArticleTags[0]) && mCurrentSearchArticleFriend.equals("無")) {
+            Log.d(TAG, "search type : searchArticlesByTag");
+            searchArticlesByTag();
+        } else if (mCurrentSearchArticleTag.equals(mSearchArticleTags[0]) && !mCurrentSearchArticleFriend.equals("無")) {
+            Log.d(TAG, "search type : searchArticlesByFriend");
+            searchArticlesByFriend();
+        } else {
+            Log.d(TAG, "search type : searchArticlesByTagAndFriend");
+            searchArticlesByTagAndFriend();
+        }
+    }
+
+    private void searchAllArticles() {
+        DatabaseReference databaseReference = FirebaseDatabase.getInstance().getReference(DATA).child(ARTICLES);
+        ValueEventListener valueEventListener = new ValueEventListener() {
+            @Override
+            public void onDataChange(DataSnapshot dataSnapshot) {
+                for (DataSnapshot singleSnapshot : dataSnapshot.getChildren()){
+                    String title = (String) singleSnapshot.child("article_title").getValue();
+                    Log.d(TAG, "articles titles are: " + title);
+                }
+            }
+
+            @Override
+            public void onCancelled(DatabaseError databaseError) {
+
+            }
+        };
+
+        databaseReference.addListenerForSingleValueEvent(valueEventListener);
+    }
+
+    private void searchArticlesByTag() {
+        Query query = FirebaseDatabase.getInstance().getReference(DATA).child(ARTICLES).orderByChild("article_tag").equalTo(mCurrentSearchArticleTag);
+        ValueEventListener valueEventListener = new ValueEventListener() {
+            @Override
+            public void onDataChange(DataSnapshot dataSnapshot) {
+                for (DataSnapshot singleSnapshot : dataSnapshot.getChildren()){
+                    String title = (String) singleSnapshot.child("article_title").getValue();
+                    Log.d(TAG, "articles titles are: " + title);
+                }
+            }
+
+            @Override
+            public void onCancelled(DatabaseError databaseError) {
+
+            }
+        };
+
+        query.addListenerForSingleValueEvent(valueEventListener);
+    }
+
+    private void searchArticlesByFriend() {
+        Query query = FirebaseDatabase.getInstance().getReference(DATA).child(ARTICLES).orderByChild("author/id").equalTo(mCurrentSearchArticleFriend);
+        ValueEventListener valueEventListener = new ValueEventListener() {
+            @Override
+            public void onDataChange(DataSnapshot dataSnapshot) {
+                for (DataSnapshot singleSnapshot : dataSnapshot.getChildren()){
+                    String title = (String) singleSnapshot.child("article_title").getValue();
+                    Log.d(TAG, "articles titles are: " + title);
+                }
+            }
+
+            @Override
+            public void onCancelled(DatabaseError databaseError) {
+
+            }
+        };
+
+        query.addListenerForSingleValueEvent(valueEventListener);
+    }
+
+    private void searchArticlesByTagAndFriend() {
+        Query query = FirebaseDatabase.getInstance().getReference(DATA).child(ARTICLES).orderByChild("author/id").equalTo(mCurrentSearchArticleFriend);
+        ValueEventListener valueEventListener = new ValueEventListener() {
+            @Override
+            public void onDataChange(DataSnapshot dataSnapshot) {
+                for (DataSnapshot singleSnapshot : dataSnapshot.getChildren()){
+                    String tag = (String) singleSnapshot.child("article_tag").getValue();
+                    if (tag.equals(mCurrentSearchArticleTag)) {
+                        String title = (String) singleSnapshot.child("article_title").getValue();
+                        Log.d(TAG, "articles titles are: " + title);
+                    }
+                }
+            }
+
+            @Override
+            public void onCancelled(DatabaseError databaseError) {
+
+            }
+        };
+        query.addListenerForSingleValueEvent(valueEventListener);
     }
 }
